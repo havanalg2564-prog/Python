@@ -1,15 +1,11 @@
 import os
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 import asyncpg
 import redis.asyncio as aioredis
 
-dbHost = os.getenv("DB_HOST", "db")
-dbPort = int(os.getenv("DB_PORT", 5432))
-dbUser = os.getenv("DB_USER", "postgres")
-dbPass = os.getenv("DB_PASSWORD", "secret")
-dbName = os.getenv("DB_NAME", "appdb")
-
+dbUrl = os.getenv("DATABASE_URL")
 redisHost = os.getenv("REDIS_HOST", "redis")
 redisPort = int(os.getenv("REDIS_PORT", 6379))
 
@@ -19,13 +15,11 @@ redisClient = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global dbPool, redisClient
-    dbPool = await asyncpg.create_pool(
-        host=dbHost,
-        port=dbPort,
-        user=dbUser,
-        password=dbPass,
-        database=dbName,
-    )
+    
+    # Ждем, пока база данных полностью запустится
+    print("Connecting to database...")
+    dbPool = await asyncpg.create_pool(dsn=dbUrl)
+    
     async with dbPool.acquire() as conn:
         await conn.execute(
             """
@@ -35,11 +29,13 @@ async def lifespan(app: FastAPI):
             )
             """
         )
+    
     redisClient = aioredis.Redis(
         host=redisHost,
         port=redisPort,
         decode_responses=True,
     )
+    print("Application startup complete!")
     yield
     await dbPool.close()
     await redisClient.close()
