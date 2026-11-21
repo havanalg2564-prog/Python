@@ -6,15 +6,13 @@ import asyncpg
 import redis.asyncio as aioredis
 
 dbUrl = os.getenv("DATABASE_URL")
-redisHost = os.getenv("REDIS_HOST", "redis")
-redisPort = int(os.getenv("REDIS_PORT", 6379))
+redisUrl = os.getenv("REDIS_URL")
 
 dbPool = None
 redisClient = None
 
 async def connectDb(maxAttempts: int = 5, delay: float = 2.0):
     url = dbUrl.replace("postgresql://", "postgres://") if dbUrl else None
-    
     for attempt in range(1, maxAttempts + 1):
         try:
             pool = await asyncpg.create_pool(dsn=url, timeout=5.0)
@@ -22,26 +20,19 @@ async def connectDb(maxAttempts: int = 5, delay: float = 2.0):
             return pool
         except Exception as e:
             print(f"--> Database attempt {attempt} failed: {repr(e)}", flush=True)
-            if attempt == maxAttempts:
-                raise
+            if attempt == maxAttempts: raise
             await asyncio.sleep(delay)
 
 async def connectRedis(maxAttempts: int = 5, delay: float = 2.0):
     for attempt in range(1, maxAttempts + 1):
         try:
-            client = aioredis.Redis(
-                host=redisHost,
-                port=redisPort,
-                decode_responses=True,
-                socket_connect_timeout=5.0
-            )
+            client = aioredis.from_url(redisUrl, decode_responses=True, socket_connect_timeout=5.0)
             await client.ping()
             print(f"--> Redis connected on attempt {attempt}", flush=True)
             return client
         except Exception as e:
             print(f"--> Redis attempt {attempt} failed: {repr(e)}", flush=True)
-            if attempt == maxAttempts:
-                raise
+            if attempt == maxAttempts: raise
             await asyncio.sleep(delay)
 
 @asynccontextmanager
@@ -49,8 +40,7 @@ async def lifespan(app: FastAPI):
     global dbPool, redisClient
     
     print(f"DEBUG: DB_URL prefix: {str(dbUrl)[:15] if dbUrl else 'NONE'}", flush=True)
-    print(f"DEBUG: REDIS_HOST: {redisHost}", flush=True)
-    print(f"DEBUG: REDIS_PORT: {redisPort}", flush=True)
+    print(f"DEBUG: REDIS_URL prefix: {str(redisUrl)[:15] if redisUrl else 'NONE'}", flush=True)
 
     print("Connecting to database...", flush=True)
     dbPool = await connectDb()
