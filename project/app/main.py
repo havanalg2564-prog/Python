@@ -12,13 +12,41 @@ redisPort = int(os.getenv("REDIS_PORT", 6379))
 dbPool = None
 redisClient = None
 
+async def connectDb(maxAttempts: int = 15, delay: float = 2.0):
+    for attempt in range(1, maxAttempts + 1):
+        try:
+            pool = await asyncpg.create_pool(dsn=dbUrl)
+            print(f"Database connected on attempt {attempt}")
+            return pool
+        except Exception as e:
+            print(f"Database attempt {attempt} failed: {e}")
+            if attempt == maxAttempts:
+                raise
+            await asyncio.sleep(delay)
+
+async def connectRedis(maxAttempts: int = 15, delay: float = 2.0):
+    for attempt in range(1, maxAttempts + 1):
+        try:
+            client = aioredis.Redis(
+                host=redisHost,
+                port=redisPort,
+                decode_responses=True,
+            )
+            await client.ping()
+            print(f"Redis connected on attempt {attempt}")
+            return client
+        except Exception as e:
+            print(f"Redis attempt {attempt} failed: {e}")
+            if attempt == maxAttempts:
+                raise
+            await asyncio.sleep(delay)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global dbPool, redisClient
     
-    # Ждем, пока база данных полностью запустится
     print("Connecting to database...")
-    dbPool = await asyncpg.create_pool(dsn=dbUrl)
+    dbPool = await connectDb()
     
     async with dbPool.acquire() as conn:
         await conn.execute(
@@ -30,13 +58,12 @@ async def lifespan(app: FastAPI):
             """
         )
     
-    redisClient = aioredis.Redis(
-        host=redisHost,
-        port=redisPort,
-        decode_responses=True,
-    )
+    print("Connecting to Redis...")
+    redisClient = await connectRedis()
+    
     print("Application startup complete!")
     yield
+    
     await dbPool.close()
     await redisClient.close()
 
